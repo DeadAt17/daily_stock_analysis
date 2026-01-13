@@ -212,17 +212,19 @@ class MarketAnalyzer:
         """
         获取美股主要指数实时行情
         
-        {{ Eddie Peng: Modify - 使用 yfinance 作为主数据源获取美股指数。20260113 }}
+        {{ Eddie Peng: Modify - 使用 yfinance 主数据源 + akshare 备选，防止限流。20260113 }}
         """
         indices = []
         
+        # 方案1: 尝试使用 yfinance（主数据源）
         try:
-            logger.info("[大盘-美股] 获取主要指数实时行情（使用 yfinance）...")
+            logger.info("[大盘-美股] 尝试使用 yfinance 获取指数行情...")
             
             import yfinance as yf
+            import time
             
             # 使用 yfinance 获取美股指数行情
-            for code, name in self.US_MAIN_INDICES.items():
+            for idx, (code, name) in enumerate(self.US_MAIN_INDICES.items()):
                 try:
                     logger.debug(f"[大盘-美股] 获取 {name} ({code})...")
                     
@@ -273,16 +275,99 @@ class MarketAnalyzer:
                     indices.append(index)
                     logger.debug(f"[大盘-美股] {name}: {current:.2f} ({change_pct:+.2f}%)")
                     
+                    # 添加延迟，避免触发限流（除了最后一个）
+                    if idx < len(self.US_MAIN_INDICES) - 1:
+                        time.sleep(1.5)
+                    
                 except Exception as e:
+                    # 检查是否是限流错误
+                    error_msg = str(e)
+                    if 'Rate limited' in error_msg or 'Too Many Requests' in error_msg:
+                        logger.warning(f"[大盘-美股] yfinance 触发限流，切换到备选方案")
+                        break  # 跳出循环，使用备选方案
                     logger.warning(f"[大盘-美股] 获取 {name} ({code}) 失败: {e}")
                     continue
             
-            logger.info(f"[大盘-美股] 获取到 {len(indices)} 个指数行情")
+            # 如果成功获取到数据，直接返回
+            if indices:
+                logger.info(f"[大盘-美股] yfinance 获取到 {len(indices)} 个指数行情")
+                return indices
                 
         except ImportError:
-            logger.error("[大盘-美股] yfinance 未安装，请运行: pip install yfinance")
+            logger.warning("[大盘-美股] yfinance 未安装，将使用备选方案")
         except Exception as e:
-            logger.error(f"[大盘-美股] 获取指数行情失败: {e}")
+            logger.warning(f"[大盘-美股] yfinance 获取失败: {e}，将使用备选方案")
+        
+        # 方案2: 使用 akshare 作为备选方案
+        logger.info("[大盘-美股] 使用 akshare 备选方案获取指数行情...")
+        try:
+            df = ak.index_us_stock_sina()
+            
+            if df is not None and not df.empty:
+                # 代码映射（akshare 使用不同的代码格式）
+                code_mapping = {
+                    '^GSPC': ['GSPC', 'SPX', '.INX', '标普500'],
+                    '^DJI': ['DJI', 'DJIA', '道琼斯'],
+                    '^IXIC': ['IXIC', 'COMP', '纳斯达克'],
+                    '^RUT': ['RUT', 'RUI', '罗素'],
+                }
+                
+                for code, name in self.US_MAIN_INDICES.items():
+                    search_terms = code_mapping.get(code, [code.replace('^', '')])
+                    row = None
+                    
+                    # 尝试多种匹配方式
+                    for term in search_terms:
+                        # 按 symbol 匹配
+                        if 'symbol' in df.columns:
+                            row = df[df['symbol'].str.contains(term, case=False, na=False)]
+                        if row is not None and not row.empty:
+                            break
+                        
+                        # 按 cname 匹配
+                        if 'cname' in df.columns:
+                            row = df[df['cname'].str.contains(term, na=False)]
+                        if row is not None and not row.empty:
+                            break
+                    
+                    if row is not None and not row.empty:
+                        row = row.iloc[0]
+                        
+                        # 提取数据（兼容不同的列名）
+                        current = float(row.get('trade', row.get('now', row.get('price', 0))) or 0)
+                        prev_close = float(row.get('settlement', row.get('preclose', 0)) or 0)
+                        open_price = float(row.get('open', 0) or 0)
+                        high = float(row.get('high', 0) or 0)
+                        low = float(row.get('low', 0) or 0)
+                        volume = float(row.get('volume', 0) or 0)
+                        
+                        change = current - prev_close if prev_close > 0 else 0
+                        change_pct = (change / prev_close * 100) if prev_close > 0 else 0
+                        
+                        index = MarketIndex(
+                            code=code,
+                            name=name,
+                            current=current,
+                            change=change,
+                            change_pct=change_pct,
+                            open=open_price,
+                            high=high,
+                            low=low,
+                            prev_close=prev_close,
+                            volume=volume,
+                            amount=0,
+                        )
+                        
+                        # 计算振幅
+                        if index.prev_close > 0:
+                            index.amplitude = (index.high - index.low) / index.prev_close * 100
+                        
+                        indices.append(index)
+                        logger.debug(f"[大盘-美股] {name}: {current:.2f} ({change_pct:+.2f}%)")
+                
+                logger.info(f"[大盘-美股] akshare 获取到 {len(indices)} 个指数行情")
+        except Exception as e:
+            logger.error(f"[大盘-美股] akshare 备选方案也失败: {e}")
         
         return indices
     

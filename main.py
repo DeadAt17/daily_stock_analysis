@@ -802,8 +802,14 @@ def main() -> int:
                     serpapi_keys=config.serpapi_keys
                 )
             
-            if config.gemini_api_key:
-                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+            # {{ Eddie Peng: Fix - 同时支持 Gemini 和 OpenAI 兼容 API。20260113 }}
+            if config.gemini_api_key or config.openai_api_key:
+                analyzer = GeminiAnalyzer()  # GeminiAnalyzer 内部会自动选择可用的 API
+                if analyzer.is_available():
+                    logger.info("AI分析器初始化成功")
+                else:
+                    logger.warning("AI分析器初始化失败，将使用模板生成报告")
+                    analyzer = None
             
             run_market_review(notifier, analyzer, search_service)
             return 0
