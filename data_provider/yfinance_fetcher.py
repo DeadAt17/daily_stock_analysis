@@ -172,14 +172,26 @@ class YfinanceFetcher(BaseFetcher):
         df = df.rename(columns=column_mapping)
         
         # 计算涨跌幅（因为 yfinance 不直接提供）
-        if 'close' in df.columns:
-            df['pct_chg'] = df['close'].pct_change() * 100
-            df['pct_chg'] = df['pct_chg'].fillna(0).round(2)
+        # {{ Eddie Peng: Fix - 添加数据验证，防止空数据导致错误。20260113 }}
+        if 'close' in df.columns and len(df) > 0:
+            try:
+                df['pct_chg'] = df['close'].pct_change() * 100
+                df['pct_chg'] = df['pct_chg'].replace([float('inf'), float('-inf')], 0)
+                df['pct_chg'] = df['pct_chg'].fillna(0)
+                df['pct_chg'] = df['pct_chg'].round(2)
+            except Exception as e:
+                logger.warning(f"计算涨跌幅失败: {e}，使用默认值 0")
+                df['pct_chg'] = 0
         
         # 计算成交额（yfinance 不提供，使用估算值）
         # 成交额 ≈ 成交量 * 平均价格
-        if 'volume' in df.columns and 'close' in df.columns:
-            df['amount'] = df['volume'] * df['close']
+        if 'volume' in df.columns and 'close' in df.columns and len(df) > 0:
+            try:
+                df['amount'] = df['volume'] * df['close']
+                df['amount'] = df['amount'].fillna(0)
+            except Exception as e:
+                logger.warning(f"计算成交额失败: {e}，使用默认值 0")
+                df['amount'] = 0
         else:
             df['amount'] = 0
         
