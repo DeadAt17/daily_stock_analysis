@@ -110,7 +110,7 @@ class YfinanceFetcher(BaseFetcher):
         """
         从 Yahoo Finance 获取原始数据
         
-        使用 yfinance.download() 获取历史数据
+        使用 yfinance Ticker.history() 获取历史数据（避免 MultiIndex 问题）
         
         流程：
         1. 转换股票代码格式
@@ -122,15 +122,14 @@ class YfinanceFetcher(BaseFetcher):
         # 转换代码格式
         yf_code = self._convert_stock_code(stock_code)
         
-        logger.debug(f"调用 yfinance.download({yf_code}, {start_date}, {end_date})")
+        logger.debug(f"调用 yfinance Ticker({yf_code}).history({start_date}, {end_date})")
         
         try:
-            # 使用 yfinance 下载数据
-            df = yf.download(
-                tickers=yf_code,
+            # 使用 Ticker.history() 替代 download()，避免 MultiIndex 列问题
+            ticker = yf.Ticker(yf_code)
+            df = ticker.history(
                 start=start_date,
                 end=end_date,
-                progress=False,  # 禁止进度条
                 auto_adjust=True,  # 自动调整价格（复权）
             )
             
@@ -148,7 +147,7 @@ class YfinanceFetcher(BaseFetcher):
         """
         标准化 Yahoo Finance 数据
         
-        yfinance 返回的列名：
+        yfinance Ticker.history() 返回的列名：
         Open, High, Low, Close, Volume（索引是日期）
         
         需要映射到标准列名：

@@ -271,13 +271,14 @@ class DataFetcherManager:
     """
     数据源策略管理器
     
-    {{ Eddie Peng: Modify - 支持根据市场类型选择不同数据源。20260113 }}
+    {{ Eddie Peng: Modify - 支持根据市场类型选择不同数据源，并根据配置决定是否初始化。20260113 }}
     
     职责：
     1. 管理多个数据源（按优先级排序）
     2. 自动故障切换（Failover）
     3. 提供统一的数据获取接口
     4. 根据市场类型（A股/美股）选择合适的数据源
+    5. 根据配置决定是否初始化对应市场的数据源
     
     切换策略：
     - A股：AkshareFetcher -> TushareFetcher -> BaostockFetcher -> YfinanceFetcher
@@ -307,6 +308,8 @@ class DataFetcherManager:
         """
         初始化默认数据源列表
         
+        {{ Eddie Peng: Modify - 根据配置决定是否初始化A股/美股数据源。20260113 }}
+        
         A股数据源（按优先级）：
         1. AkshareFetcher (Priority 1)
         2. TushareFetcher (Priority 2)
@@ -317,42 +320,57 @@ class DataFetcherManager:
         1. FinnhubFetcher (Priority 1)
         2. YfinanceFetcher (Priority 2)
         """
-        from .akshare_fetcher import AkshareFetcher
-        from .tushare_fetcher import TushareFetcher
-        from .baostock_fetcher import BaostockFetcher
-        from .yfinance_fetcher import YfinanceFetcher
+        from config import get_config
+        config = get_config()
         
-        # A股数据源
-        self._cn_fetchers = [
-            AkshareFetcher(),
-            TushareFetcher(),
-            BaostockFetcher(),
-            YfinanceFetcher(),
-        ]
-        self._cn_fetchers.sort(key=lambda f: f.priority)
+        # 检查是否配置了A股列表
+        has_cn_stocks = bool(config.cn_stock_list)
+        # 检查是否配置了美股列表
+        has_us_stocks = bool(config.us_stock_list)
         
-        # 美股数据源
-        try:
-            from .finnhub_fetcher import FinnhubFetcher
-            finnhub = FinnhubFetcher()
-            if finnhub.is_available():
-                self._us_fetchers.append(finnhub)
-                logger.info("Finnhub 数据源已启用（美股）")
-            else:
-                logger.info("Finnhub API Key 未配置，美股将使用 YfinanceFetcher")
-        except ImportError:
-            logger.warning("finnhub-python 未安装，美股将使用 YfinanceFetcher")
+        # 只有配置了A股列表才初始化A股数据源
+        if has_cn_stocks:
+            from .akshare_fetcher import AkshareFetcher
+            from .tushare_fetcher import TushareFetcher
+            from .baostock_fetcher import BaostockFetcher
+            from .yfinance_fetcher import YfinanceFetcher
+            
+            self._cn_fetchers = [
+                AkshareFetcher(),
+                TushareFetcher(),
+                BaostockFetcher(),
+                YfinanceFetcher(),
+            ]
+            self._cn_fetchers.sort(key=lambda f: f.priority)
+            logger.info(f"已初始化 A股数据源: " + 
+                       ", ".join([f.name for f in self._cn_fetchers]))
+        else:
+            logger.info("未配置 CN_STOCK_LIST，跳过 A股数据源初始化")
         
-        # YfinanceFetcher 作为美股备用
-        self._us_fetchers.append(YfinanceFetcher())
+        # 只有配置了美股列表才初始化美股数据源
+        if has_us_stocks:
+            from .yfinance_fetcher import YfinanceFetcher
+            
+            try:
+                from .finnhub_fetcher import FinnhubFetcher
+                finnhub = FinnhubFetcher()
+                if finnhub.is_available():
+                    self._us_fetchers.append(finnhub)
+                    logger.info("Finnhub 数据源已启用（美股）")
+                else:
+                    logger.info("Finnhub API Key 未配置，美股将使用 YfinanceFetcher")
+            except ImportError:
+                logger.warning("finnhub-python 未安装，美股将使用 YfinanceFetcher")
+            
+            # YfinanceFetcher 作为美股备用
+            self._us_fetchers.append(YfinanceFetcher())
+            logger.info(f"已初始化 美股数据源: " + 
+                       ", ".join([f.name for f in self._us_fetchers]))
+        else:
+            logger.info("未配置 US_STOCK_LIST，跳过 美股数据源初始化")
         
         # 兼容旧接口（默认使用A股源）
-        self._fetchers = self._cn_fetchers
-        
-        logger.info(f"已初始化 A股数据源: " + 
-                   ", ".join([f.name for f in self._cn_fetchers]))
-        logger.info(f"已初始化 美股数据源: " + 
-                   ", ".join([f.name for f in self._us_fetchers]))
+        self._fetchers = self._cn_fetchers if self._cn_fetchers else self._us_fetchers
     
     def add_fetcher(self, fetcher: BaseFetcher) -> None:
         """添加数据源并重新排序"""
@@ -400,6 +418,12 @@ class DataFetcherManager:
             fetchers = self._cn_fetchers
             market_name = "A股"
         
+        # 检查对应市场的数据源是否已初始化
+        if not fetchers:
+            raise DataFetchError(
+                f"未初始化{market_name}数据源（请检查配置文件中是否设置了对应的股票列表）"
+            )
+        
         logger.info(f"[{stock_code}] 识别为 {market_name}，使用对应数据源")
         
         errors = []
@@ -434,3 +458,13 @@ class DataFetcherManager:
     def available_fetchers(self) -> List[str]:
         """返回可用数据源名称列表"""
         return [f.name for f in self._fetchers]
+    
+    @property
+    def cn_fetchers_available(self) -> bool:
+        """A股数据源是否可用"""
+        return bool(self._cn_fetchers)
+    
+    @property
+    def us_fetchers_available(self) -> bool:
+        """美股数据源是否可用"""
+        return bool(self._us_fetchers)
