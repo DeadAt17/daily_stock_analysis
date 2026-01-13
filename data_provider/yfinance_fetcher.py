@@ -27,7 +27,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS
+from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, MarketType, detect_market
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +61,18 @@ class YfinanceFetcher(BaseFetcher):
         """
         转换股票代码为 Yahoo Finance 格式
         
-        Yahoo Finance A 股代码格式：
-        - 沪市：600519.SS (Shanghai Stock Exchange)
-        - 深市：000001.SZ (Shenzhen Stock Exchange)
+        {{ Eddie Peng: Modify - 支持A股和美股代码转换。20260113 }}
+        
+        Yahoo Finance 代码格式：
+        - A股沪市：600519.SS (Shanghai Stock Exchange)
+        - A股深市：000001.SZ (Shenzhen Stock Exchange)
+        - 美股：直接使用代码（如 AAPL, TSLA）
         
         Args:
-            stock_code: 原始代码，如 '600519', '000001'
+            stock_code: 原始代码
             
         Returns:
-            Yahoo Finance 格式代码，如 '600519.SS', '000001.SZ'
+            Yahoo Finance 格式代码
         """
         code = stock_code.strip()
         
@@ -77,6 +80,14 @@ class YfinanceFetcher(BaseFetcher):
         if '.SS' in code.upper() or '.SZ' in code.upper():
             return code.upper()
         
+        # 判断市场类型
+        market = detect_market(code)
+        
+        if market == MarketType.US:
+            # 美股：直接使用大写代码
+            return code.upper()
+        
+        # A股：添加后缀
         # 去除可能的后缀
         code = code.replace('.SH', '').replace('.sh', '')
         

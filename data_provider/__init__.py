@@ -10,17 +10,21 @@
 3. 防封禁流控策略
 """
 
-from .base import BaseFetcher, DataFetcherManager
+from .base import BaseFetcher, DataFetcherManager, MarketType, detect_market
 from .akshare_fetcher import AkshareFetcher
 from .tushare_fetcher import TushareFetcher
 from .baostock_fetcher import BaostockFetcher
 from .yfinance_fetcher import YfinanceFetcher
+from .finnhub_fetcher import FinnhubFetcher
 
 __all__ = [
     'BaseFetcher',
     'DataFetcherManager',
+    'MarketType',
+    'detect_market',
     'AkshareFetcher',
     'TushareFetcher',
     'BaostockFetcher',
     'YfinanceFetcher',
+    'FinnhubFetcher',
 ]

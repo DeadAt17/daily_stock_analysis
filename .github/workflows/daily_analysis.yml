@@ -51,6 +51,7 @@ jobs:
           
           # 数据源 (可选)
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           
           # 搜索服务
           TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
@@ -76,8 +77,9 @@ jobs:
           # 方式五：自定义 Webhook（支持钉钉、Discord、Slack、Bark等，多个用逗号分隔）
           CUSTOM_WEBHOOK_URLS: ${{ secrets.CUSTOM_WEBHOOK_URLS }}
           
-          # 自选股列表 (从 secrets 或使用默认值)
-          STOCK_LIST: ${{ secrets.STOCK_LIST || '600519' }}
+          # 自选股列表 (从 secrets 或使用默认值，至少配置一个)
+          CN_STOCK_LIST: ${{ secrets.CN_STOCK_LIST || '600519' }}
+          US_STOCK_LIST: ${{ secrets.US_STOCK_LIST || '' }}
           
           # 其他配置
           LOG_LEVEL: INFO
@@ -89,7 +91,8 @@ jobs:
           
           echo "=========================================="
           echo "运行模式: $MODE"
-          echo "自选股: $STOCK_LIST"
+          echo "A股列表: $CN_STOCK_LIST"
+          echo "美股列表: $US_STOCK_LIST"
           echo "时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
           echo "=========================================="
           

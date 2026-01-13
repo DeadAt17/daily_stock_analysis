@@ -58,7 +58,9 @@ def test_config():
     config = get_config()
     
     print_section("基础配置")
-    print(f"  股票列表: {config.stock_list}")
+    # {{ Eddie Peng: Modify - 显示A股和美股两个列表。20260113 }}
+    print(f"  A股列表: {config.cn_stock_list}")
+    print(f"  美股列表: {config.us_stock_list}")
     print(f"  数据库路径: {config.database_path}")
     print(f"  最大并发数: {config.max_workers}")
     print(f"  调试模式: {config.debug}")

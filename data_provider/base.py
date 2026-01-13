@@ -38,6 +38,48 @@ logger = logging.getLogger(__name__)
 STANDARD_COLUMNS = ['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
 
 
+# {{ Eddie Peng: Add - 市场类型枚举和识别函数，支持A股和美股。20260113 }}
+class MarketType:
+    """市场类型枚举"""
+    CN = "CN"  # A股（中国大陆）
+    US = "US"  # 美股
+
+
+def detect_market(stock_code: str) -> str:
+    """
+    自动识别股票代码所属市场
+    
+    识别规则：
+    - A股：6位纯数字（如 600519, 000001, 300750）
+    - 美股：1-5位字母组合（如 AAPL, TSLA, NVDA, MSFT）
+    
+    Args:
+        stock_code: 股票代码
+        
+    Returns:
+        MarketType.CN 或 MarketType.US
+    """
+    code = stock_code.strip().upper()
+    
+    # 去除可能的后缀
+    for suffix in ['.SH', '.SZ', '.SS']:
+        code = code.replace(suffix, '')
+    
+    # A股：6位纯数字
+    if code.isdigit() and len(code) == 6:
+        return MarketType.CN
+    
+    # 美股：1-5位字母（部分美股可能包含数字，如 BRK.A）
+    if code.replace('.', '').replace('-', '').isalpha() or (
+        len(code) <= 5 and code[0].isalpha()
+    ):
+        return MarketType.US
+    
+    # 默认按A股处理（向后兼容）
+    logger.warning(f"无法识别股票代码 {stock_code} 的市场类型，默认按A股处理")
+    return MarketType.CN
+
+
 class DataFetchError(Exception):
     """数据获取异常基类"""
     pass
@@ -229,15 +271,17 @@ class DataFetcherManager:
     """
     数据源策略管理器
     
+    {{ Eddie Peng: Modify - 支持根据市场类型选择不同数据源。20260113 }}
+    
     职责：
     1. 管理多个数据源（按优先级排序）
     2. 自动故障切换（Failover）
     3. 提供统一的数据获取接口
+    4. 根据市场类型（A股/美股）选择合适的数据源
     
     切换策略：
-    - 优先使用高优先级数据源
-    - 失败后自动切换到下一个
-    - 所有数据源都失败时抛出异常
+    - A股：AkshareFetcher -> TushareFetcher -> BaostockFetcher -> YfinanceFetcher
+    - 美股：FinnhubFetcher -> YfinanceFetcher
     """
     
     def __init__(self, fetchers: Optional[List[BaseFetcher]] = None):
@@ -247,11 +291,14 @@ class DataFetcherManager:
         Args:
             fetchers: 数据源列表（可选，默认按优先级自动创建）
         """
-        self._fetchers: List[BaseFetcher] = []
+        self._cn_fetchers: List[BaseFetcher] = []  # A股数据源
+        self._us_fetchers: List[BaseFetcher] = []  # 美股数据源
+        self._fetchers: List[BaseFetcher] = []     # 兼容旧接口
         
         if fetchers:
             # 按优先级排序
             self._fetchers = sorted(fetchers, key=lambda f: f.priority)
+            self._cn_fetchers = self._fetchers  # 默认作为A股源
         else:
             # 默认数据源将在首次使用时延迟加载
             self._init_default_fetchers()
@@ -260,29 +307,52 @@ class DataFetcherManager:
         """
         初始化默认数据源列表
         
-        按优先级排序：
+        A股数据源（按优先级）：
         1. AkshareFetcher (Priority 1)
         2. TushareFetcher (Priority 2)
         3. BaostockFetcher (Priority 3)
         4. YfinanceFetcher (Priority 4)
+        
+        美股数据源（按优先级）：
+        1. FinnhubFetcher (Priority 1)
+        2. YfinanceFetcher (Priority 2)
         """
         from .akshare_fetcher import AkshareFetcher
         from .tushare_fetcher import TushareFetcher
         from .baostock_fetcher import BaostockFetcher
         from .yfinance_fetcher import YfinanceFetcher
         
-        self._fetchers = [
+        # A股数据源
+        self._cn_fetchers = [
             AkshareFetcher(),
             TushareFetcher(),
             BaostockFetcher(),
             YfinanceFetcher(),
         ]
+        self._cn_fetchers.sort(key=lambda f: f.priority)
         
-        # 按优先级排序
-        self._fetchers.sort(key=lambda f: f.priority)
+        # 美股数据源
+        try:
+            from .finnhub_fetcher import FinnhubFetcher
+            finnhub = FinnhubFetcher()
+            if finnhub.is_available():
+                self._us_fetchers.append(finnhub)
+                logger.info("Finnhub 数据源已启用（美股）")
+            else:
+                logger.info("Finnhub API Key 未配置，美股将使用 YfinanceFetcher")
+        except ImportError:
+            logger.warning("finnhub-python 未安装，美股将使用 YfinanceFetcher")
         
-        logger.info(f"已初始化 {len(self._fetchers)} 个数据源: " + 
-                   ", ".join([f.name for f in self._fetchers]))
+        # YfinanceFetcher 作为美股备用
+        self._us_fetchers.append(YfinanceFetcher())
+        
+        # 兼容旧接口（默认使用A股源）
+        self._fetchers = self._cn_fetchers
+        
+        logger.info(f"已初始化 A股数据源: " + 
+                   ", ".join([f.name for f in self._cn_fetchers]))
+        logger.info(f"已初始化 美股数据源: " + 
+                   ", ".join([f.name for f in self._us_fetchers]))
     
     def add_fetcher(self, fetcher: BaseFetcher) -> None:
         """添加数据源并重新排序"""
@@ -299,14 +369,17 @@ class DataFetcherManager:
         """
         获取日线数据（自动切换数据源）
         
+        {{ Eddie Peng: Modify - 根据市场类型自动选择数据源。20260113 }}
+        
         故障切换策略：
-        1. 从最高优先级数据源开始尝试
-        2. 捕获异常后自动切换到下一个
-        3. 记录每个数据源的失败原因
-        4. 所有数据源失败后抛出详细异常
+        1. 自动识别股票市场（A股/美股）
+        2. 选择对应市场的数据源列表
+        3. 从最高优先级数据源开始尝试
+        4. 捕获异常后自动切换到下一个
+        5. 所有数据源失败后抛出详细异常
         
         Args:
-            stock_code: 股票代码
+            stock_code: 股票代码（A股如 600519，美股如 AAPL）
             start_date: 开始日期
             end_date: 结束日期
             days: 获取天数
@@ -317,9 +390,21 @@ class DataFetcherManager:
         Raises:
             DataFetchError: 所有数据源都失败时抛出
         """
+        # 识别市场类型，选择对应数据源
+        market = detect_market(stock_code)
+        
+        if market == MarketType.US:
+            fetchers = self._us_fetchers
+            market_name = "美股"
+        else:
+            fetchers = self._cn_fetchers
+            market_name = "A股"
+        
+        logger.info(f"[{stock_code}] 识别为 {market_name}，使用对应数据源")
+        
         errors = []
         
-        for fetcher in self._fetchers:
+        for fetcher in fetchers:
             try:
                 logger.info(f"尝试使用 [{fetcher.name}] 获取 {stock_code}...")
                 df = fetcher.get_daily_data(
@@ -341,7 +426,7 @@ class DataFetcherManager:
                 continue
         
         # 所有数据源都失败
-        error_summary = f"所有数据源获取 {stock_code} 失败:\n" + "\n".join(errors)
+        error_summary = f"所有{market_name}数据源获取 {stock_code} 失败:\n" + "\n".join(errors)
         logger.error(error_summary)
         raise DataFetchError(error_summary)
     

@@ -79,10 +79,14 @@
 
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
-| `STOCK_LIST` | 自选股代码，如 `600519,300750,002594` | ✅ |
+| `CN_STOCK_LIST` | A股代码，如 `600519,300750,002594` | ✅* |
+| `US_STOCK_LIST` | 美股代码，如 `AAPL,TSLA,NVDA` | ✅* |
+
+> *注：`CN_STOCK_LIST` 和 `US_STOCK_LIST` 至少配置一个
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新闻搜索） | 推荐 |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/) 备用搜索 | 可选 |
-| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/) Token | 可选 |
+| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/) Token（A股增强） | 可选 |
+| `FINNHUB_API_KEY` | [Finnhub](https://finnhub.io/) API Key（美股数据） | 美股推荐 |
 
 #### 3. 启用 Actions
 
@@ -175,7 +179,8 @@ docker-compose logs -f
 # === 必填 ===
 GEMINI_API_KEY=your_gemini_key          # Gemini AI
 WECHAT_WEBHOOK_URL=https://qyapi...     # 企业微信机器人
-STOCK_LIST=600519,300750,002594         # 自选股列表
+CN_STOCK_LIST=600519,300750,002594       # A股列表
+US_STOCK_LIST=AAPL,TSLA,NVDA             # 美股列表（可选）
 
 # === 推荐 ===
 TAVILY_API_KEYS=your_tavily_key         # 新闻搜索

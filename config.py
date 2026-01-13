@@ -29,10 +29,14 @@ class Config:
     """
     
     # === 自选股配置 ===
-    stock_list: List[str] = field(default_factory=list)
+    # {{ Eddie Peng: Modify - 拆分为A股和美股两个列表，支持双市场分析。20260113 }}
+    cn_stock_list: List[str] = field(default_factory=list)  # A股代码列表
+    us_stock_list: List[str] = field(default_factory=list)  # 美股代码列表
     
     # === 数据源 API Token ===
     tushare_token: Optional[str] = None
+    # {{ Eddie Peng: Add - 新增 Finnhub API Key 用于美股数据。20260113 }}
+    finnhub_api_key: Optional[str] = None  # Finnhub API Key（美股数据源）
     
     # === AI 分析配置 ===
     gemini_api_key: Optional[str] = None
@@ -134,17 +138,32 @@ class Config:
         env_path = Path(__file__).parent / '.env'
         load_dotenv(dotenv_path=env_path)
         
-        # 解析自选股列表（逗号分隔）
-        stock_list_str = os.getenv('STOCK_LIST', '')
-        stock_list = [
+        # {{ Eddie Peng: Modify - 解析A股和美股两个列表，CN_STOCK_LIST 和 US_STOCK_LIST 至少填一个。20260113 }}
+        # 解析A股列表（逗号分隔）
+        cn_stock_list_str = os.getenv('CN_STOCK_LIST', '')
+        cn_stock_list = [
             code.strip() 
-            for code in stock_list_str.split(',') 
+            for code in cn_stock_list_str.split(',') 
             if code.strip()
         ]
         
-        # 如果没有配置，使用默认的示例股票
-        if not stock_list:
-            stock_list = ['600519', '000001', '300750']
+        # 解析美股列表（逗号分隔）
+        us_stock_list_str = os.getenv('US_STOCK_LIST', '')
+        us_stock_list = [
+            code.strip().upper()  # 美股代码统一大写
+            for code in us_stock_list_str.split(',') 
+            if code.strip()
+        ]
+        
+        # 兼容旧配置：如果使用了旧的 STOCK_LIST，自动迁移到 CN_STOCK_LIST
+        if not cn_stock_list and not us_stock_list:
+            old_stock_list_str = os.getenv('STOCK_LIST', '')
+            if old_stock_list_str:
+                cn_stock_list = [
+                    code.strip() 
+                    for code in old_stock_list_str.split(',') 
+                    if code.strip()
+                ]
         
         # 解析搜索引擎 API Keys（支持多个 key，逗号分隔）
         tavily_keys_str = os.getenv('TAVILY_API_KEYS', '')
@@ -154,8 +173,10 @@ class Config:
         serpapi_keys = [k.strip() for k in serpapi_keys_str.split(',') if k.strip()]
         
         return cls(
-            stock_list=stock_list,
+            cn_stock_list=cn_stock_list,
+            us_stock_list=us_stock_list,
             tushare_token=os.getenv('TUSHARE_TOKEN'),
+            finnhub_api_key=os.getenv('FINNHUB_API_KEY'),
             gemini_api_key=os.getenv('GEMINI_API_KEY'),
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview'),
             gemini_model_fallback=os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-2.5-flash'),
@@ -199,8 +220,9 @@ class Config:
         """
         warnings = []
         
-        if not self.stock_list:
-            warnings.append("警告：未配置自选股列表 (STOCK_LIST)")
+        # {{ Eddie Peng: Modify - 验证A股或美股列表至少配置一个。20260113 }}
+        if not self.cn_stock_list and not self.us_stock_list:
+            warnings.append("警告：未配置自选股列表，CN_STOCK_LIST 和 US_STOCK_LIST 至少填写一个")
         
         if not self.tushare_token:
             warnings.append("提示：未配置 Tushare Token，将使用其他数据源")
@@ -246,7 +268,8 @@ if __name__ == "__main__":
     # 测试配置加载
     config = get_config()
     print("=== 配置加载测试 ===")
-    print(f"自选股列表: {config.stock_list}")
+    print(f"A股列表: {config.cn_stock_list}")
+    print(f"美股列表: {config.us_stock_list}")
     print(f"数据库路径: {config.database_path}")
     print(f"最大并发数: {config.max_workers}")
     print(f"调试模式: {config.debug}")

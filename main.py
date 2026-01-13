@@ -497,12 +497,13 @@ class StockAnalysisPipeline:
         """
         start_time = time.time()
         
-        # 使用配置中的股票列表
+        # {{ Eddie Peng: Modify - 合并A股和美股列表，支持双市场分析。20260113 }}
+        # 使用配置中的股票列表（合并 A股 + 美股）
         if stock_codes is None:
-            stock_codes = self.config.stock_list
+            stock_codes = self.config.cn_stock_list + self.config.us_stock_list
         
         if not stock_codes:
-            logger.error("未配置自选股列表，请在 .env 文件中设置 STOCK_LIST")
+            logger.error("未配置自选股列表，请在 .env 文件中设置 CN_STOCK_LIST 或 US_STOCK_LIST")
             return []
         
         logger.info(f"===== 开始分析 {len(stock_codes)} 只股票 =====")

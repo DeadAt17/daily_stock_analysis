@@ -185,7 +185,8 @@ journalctl -u stock-analyzer -f
 | 配置项 | 说明 | 获取方式 |
 |--------|------|----------|
 | `GEMINI_API_KEY` | AI 分析必需 | [Google AI Studio](https://aistudio.google.com/) |
-| `STOCK_LIST` | 自选股列表 | 逗号分隔的股票代码 |
+| `CN_STOCK_LIST` | A股列表 | 逗号分隔的A股代码（至少填一个） |
+| `US_STOCK_LIST` | 美股列表 | 逗号分隔的美股代码（至少填一个） |
 | `WECHAT_WEBHOOK_URL` | 微信推送 | 企业微信群机器人 |
 
 ### 可选配置项
@@ -356,10 +357,14 @@ git push -u origin main
 | `EMAIL_SENDER` | 发件人邮箱 | 可选* |
 | `EMAIL_PASSWORD` | 邮箱授权码 | 可选* |
 | `CUSTOM_WEBHOOK_URLS` | 自定义 Webhook（多个逗号分隔） | 可选* |
-| `STOCK_LIST` | 自选股列表，如 `600519,300750` | ✅ |
+| `CN_STOCK_LIST` | A股列表，如 `600519,300750` | ✅* |
+| `US_STOCK_LIST` | 美股列表，如 `AAPL,TSLA` | ✅* |
+
+> *注：`CN_STOCK_LIST` 和 `US_STOCK_LIST` 至少配置一个
 | `TAVILY_API_KEYS` | Tavily 搜索 API Key | 推荐 |
 | `SERPAPI_API_KEYS` | SerpAPI Key | 可选 |
-| `TUSHARE_TOKEN` | Tushare Token | 可选 |
+| `TUSHARE_TOKEN` | Tushare Token（A股增强） | 可选 |
+| `FINNHUB_API_KEY` | Finnhub API Key（美股数据） | 美股推荐 |
 | `GEMINI_MODEL` | 模型名称（默认 gemini-2.0-flash） | 可选 |
 
 > *注：通知渠道至少配置一个，支持多渠道同时推送
@@ -412,7 +417,7 @@ schedule:
 
 ### 修改自选股
 
-方法一：修改仓库 Secret `STOCK_LIST`
+方法一：修改仓库 Secret `CN_STOCK_LIST` 或 `US_STOCK_LIST`
 
 方法二：直接修改代码后推送：
 ```bash

@@ -9,10 +9,13 @@ sqlalchemy>=2.0.0           # ORM数据库操作
 schedule>=1.2.0             # 定时任务调度
 
 # 数据源依赖（多源策略）
+# A股数据源
 akshare>=1.12.0             # Primary: 东方财富爬虫数据源
 tushare>=1.4.0              # Backup 1: 挖地兔 Pro API
 baostock>=0.8.0             # Backup 2: 证券宝数据
-yfinance>=0.2.0             # Fallback: Yahoo Finance
+yfinance>=0.2.0             # Fallback: Yahoo Finance（同时支持美股）
+# 美股数据源
+finnhub-python>=2.4.0       # Primary: Finnhub API（美股数据）
 
 # 数据处理
 pandas>=2.0.0               # 数据分析
