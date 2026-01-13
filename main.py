@@ -687,6 +687,30 @@ def run_market_review(notifier: NotificationService, analyzer=None, search_servi
         review_report = market_analyzer.run_daily_review()
         
         if review_report:
+            # {{ Eddie Peng: Add - 保存报告到本地文件。20260113 }}
+            # 保存到本地文件
+            from datetime import datetime
+            from pathlib import Path
+            
+            report_dir = Path("./reports")
+            report_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            report_file = report_dir / f"market_review_{timestamp}.md"
+            
+            with open(report_file, 'w', encoding='utf-8') as f:
+                f.write(f"🎯 大盘复盘\n\n{review_report}")
+            
+            logger.info(f"大盘复盘报告已保存: {report_file}")
+            
+            # {{ Eddie Peng: Add - 打印报告到控制台。20260113 }}
+            # 打印到控制台
+            print("\n" + "=" * 60)
+            print("🎯 大盘复盘报告")
+            print("=" * 60)
+            print(review_report)
+            print("=" * 60 + "\n")
+            
             # 推送通知
             if notifier.is_available():
                 # 添加标题
@@ -697,6 +721,8 @@ def run_market_review(notifier: NotificationService, analyzer=None, search_servi
                     logger.info("大盘复盘推送成功")
                 else:
                     logger.warning("大盘复盘推送失败")
+            else:
+                logger.info("通知渠道未配置，跳过推送（报告已保存到本地）")
             
             return review_report
         
