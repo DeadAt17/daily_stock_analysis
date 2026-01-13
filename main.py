@@ -44,6 +44,7 @@ from config import get_config, Config
 from storage import get_db, DatabaseManager
 from data_provider import DataFetcherManager
 from data_provider.akshare_fetcher import AkshareFetcher, RealtimeQuote, ChipDistribution
+from data_provider.base import detect_market, MarketType
 from analyzer import GeminiAnalyzer, AnalysisResult, STOCK_NAME_MAP
 from notification import NotificationService, send_daily_report
 from search_service import SearchService, SearchResponse
@@ -231,35 +232,46 @@ class StockAnalysisPipeline:
             AnalysisResult 或 None（如果分析失败）
         """
         try:
+            # {{ Eddie Peng: Add - 识别股票市场类型，避免对美股调用A股API。20260113 }}
+            market_type = detect_market(code)
+            is_cn_stock = (market_type == MarketType.CN)
+            
             # 获取股票名称（优先从实时行情获取真实名称）
             stock_name = STOCK_NAME_MAP.get(code, '')
             
             # Step 1: 获取实时行情（量比、换手率等）
+            # 注意：akshare 的实时行情仅支持A股，美股跳过
             realtime_quote: Optional[RealtimeQuote] = None
-            try:
-                realtime_quote = self.akshare_fetcher.get_realtime_quote(code)
-                if realtime_quote:
-                    # 使用实时行情返回的真实股票名称
-                    if realtime_quote.name:
-                        stock_name = realtime_quote.name
-                    logger.info(f"[{code}] {stock_name} 实时行情: 价格={realtime_quote.price}, "
-                              f"量比={realtime_quote.volume_ratio}, 换手率={realtime_quote.turnover_rate}%")
-            except Exception as e:
-                logger.warning(f"[{code}] 获取实时行情失败: {e}")
+            if is_cn_stock:
+                try:
+                    realtime_quote = self.akshare_fetcher.get_realtime_quote(code)
+                    if realtime_quote:
+                        # 使用实时行情返回的真实股票名称
+                        if realtime_quote.name:
+                            stock_name = realtime_quote.name
+                        logger.info(f"[{code}] {stock_name} 实时行情: 价格={realtime_quote.price}, "
+                                  f"量比={realtime_quote.volume_ratio}, 换手率={realtime_quote.turnover_rate}%")
+                except Exception as e:
+                    logger.warning(f"[{code}] 获取实时行情失败: {e}")
+            else:
+                logger.debug(f"[{code}] 美股跳过A股实时行情API")
             
             # 如果还是没有名称，使用代码作为名称
             if not stock_name:
-                stock_name = f'股票{code}'
+                stock_name = f'股票{code}' if is_cn_stock else code
             
-            # Step 2: 获取筹码分布
+            # Step 2: 获取筹码分布（仅A股支持）
             chip_data: Optional[ChipDistribution] = None
-            try:
-                chip_data = self.akshare_fetcher.get_chip_distribution(code)
-                if chip_data:
-                    logger.info(f"[{code}] 筹码分布: 获利比例={chip_data.profit_ratio:.1%}, "
-                              f"90%集中度={chip_data.concentration_90:.2%}")
-            except Exception as e:
-                logger.warning(f"[{code}] 获取筹码分布失败: {e}")
+            if is_cn_stock:
+                try:
+                    chip_data = self.akshare_fetcher.get_chip_distribution(code)
+                    if chip_data:
+                        logger.info(f"[{code}] 筹码分布: 获利比例={chip_data.profit_ratio:.1%}, "
+                                  f"90%集中度={chip_data.concentration_90:.2%}")
+                except Exception as e:
+                    logger.warning(f"[{code}] 获取筹码分布失败: {e}")
+            else:
+                logger.debug(f"[{code}] 美股跳过筹码分布API")
             
             # Step 3: 趋势分析（基于交易理念）
             trend_result: Optional[TrendAnalysisResult] = None
