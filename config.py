@@ -57,6 +57,11 @@ class Config:
     tavily_api_keys: List[str] = field(default_factory=list)  # Tavily API Keys
     serpapi_keys: List[str] = field(default_factory=list)  # SerpAPI Keys
     
+    # === SearXNG 搜索配置（自建免费，优先级最高）===
+    searxng_base_url: Optional[str] = None  # SearXNG 远程地址
+    searxng_local_port: str = "7289"  # SearXNG 本地端口
+    searxng_enabled: bool = False  # 是否启用 SearXNG
+    
     # === 通知配置（可同时配置多个，全部推送）===
     
     # 企业微信 Webhook
@@ -188,6 +193,9 @@ class Config:
             openai_model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
             tavily_api_keys=tavily_api_keys,
             serpapi_keys=serpapi_keys,
+            searxng_base_url=os.getenv('SEARXNG_BASE_URL'),
+            searxng_local_port=os.getenv('SEARXNG_LOCAL_PORT', '7289'),
+            searxng_enabled=os.getenv('SEARXNG_ENABLED', 'false').lower() == 'true',
             wechat_webhook_url=os.getenv('WECHAT_WEBHOOK_URL'),
             feishu_webhook_url=os.getenv('FEISHU_WEBHOOK_URL'),
             telegram_bot_token=os.getenv('TELEGRAM_BOT_TOKEN'),

@@ -5,7 +5,7 @@
 ===================================
 
 职责：
-1. 支持每日定时执行股票分析
+1. 支持每日定时执行股票分析（支持多个时间点）
 2. 支持定时执行大盘复盘
 3. 优雅处理信号，确保可靠退出
 
@@ -19,7 +19,7 @@ import sys
 import time
 import threading
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Callable, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +58,17 @@ class Scheduler:
     定时任务调度器
     
     基于 schedule 库实现，支持：
-    - 每日定时执行
+    - 每日定时执行（支持多个时间点）
     - 启动时立即执行
     - 优雅退出
     """
     
-    def __init__(self, schedule_time: str = "18:00"):
+    def __init__(self, schedule_times: List[str] = None):
         """
         初始化调度器
         
         Args:
-            schedule_time: 每日执行时间，格式 "HH:MM"
+            schedule_times: 每日执行时间列表，格式 ["HH:MM", "HH:MM"]
         """
         try:
             import schedule
@@ -77,7 +77,7 @@ class Scheduler:
             logger.error("schedule 库未安装，请执行: pip install schedule")
             raise ImportError("请安装 schedule 库: pip install schedule")
         
-        self.schedule_time = schedule_time
+        self.schedule_times = schedule_times or ["18:00"]
         self.shutdown_handler = GracefulShutdown()
         self._task_callback: Optional[Callable] = None
         self._running = False
@@ -92,9 +92,10 @@ class Scheduler:
         """
         self._task_callback = task
         
-        # 设置每日定时任务
-        self.schedule.every().day.at(self.schedule_time).do(self._safe_run_task)
-        logger.info(f"已设置每日定时任务，执行时间: {self.schedule_time}")
+        # 设置每日定时任务（支持多个时间点）
+        for schedule_time in self.schedule_times:
+            self.schedule.every().day.at(schedule_time).do(self._safe_run_task)
+            logger.info(f"已设置每日定时任务，执行时间: {schedule_time}")
         
         if run_immediately:
             logger.info("立即执行一次任务...")
@@ -160,10 +161,13 @@ def run_with_schedule(
     
     Args:
         task: 要执行的任务函数
-        schedule_time: 每日执行时间
+        schedule_time: 每日执行时间（支持逗号分隔多个时间，如 "08:30,23:00"）
         run_immediately: 是否立即执行一次
     """
-    scheduler = Scheduler(schedule_time=schedule_time)
+    # 支持逗号分隔的多个时间
+    schedule_times = [t.strip() for t in schedule_time.split(',') if t.strip()]
+    
+    scheduler = Scheduler(schedule_times=schedule_times)
     scheduler.set_daily_task(task, run_immediately=run_immediately)
     scheduler.run()
 

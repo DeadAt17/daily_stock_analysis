@@ -28,6 +28,10 @@ services:
     # 或使用环境变量设置代理
     environment:
       - TZ=Asia/Shanghai
+      # SearXNG 搜索配置
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL}
+      - SEARXNG_LOCAL_PORT=${SEARXNG_LOCAL_PORT:-7289}
+      - SEARXNG_ENABLED=${SEARXNG_ENABLED:-false}
       # 代理设置（如果需要）
       # - http_proxy=http://host.docker.internal:10809
       # - https_proxy=http://host.docker.internal:10809

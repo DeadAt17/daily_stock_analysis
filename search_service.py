@@ -6,9 +6,10 @@ A股自选股智能分析系统 - 搜索服务模块
 
 职责：
 1. 提供统一的新闻搜索接口
-2. 支持 Tavily 和 SerpAPI 两种搜索引擎
-3. 多 Key 负载均衡和故障转移
-4. 搜索结果缓存和格式化
+2. 支持 SearXNG、Tavily 和 SerpAPI 三种搜索引擎
+3. SearXNG 优先级最高（自建免费）
+4. 多 Key 负载均衡和故障转移
+5. 搜索结果缓存和格式化
 """
 
 import logging
@@ -19,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from itertools import cycle
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +172,163 @@ class BaseSearchProvider(ABC):
                 error_message=str(e),
                 search_time=elapsed
             )
+
+
+class SearXNGSearchProvider(BaseSearchProvider):
+    """
+    SearXNG 搜索引擎
+    
+    特点：
+    - 开源自建的元搜索引擎
+    - 无 API 限制，免费无限使用
+    - 聚合多个搜索引擎结果
+    - 优先级最高
+    
+    文档：https://docs.searxng.org/
+    """
+    
+    def __init__(self, base_url: str, local_port: str = "7289"):
+        # SearXNG 不需要 API Key，使用特殊标记
+        super().__init__(["searxng"], "SearXNG")
+        self._base_url = base_url
+        self._local_port = local_port
+        self._active_url: Optional[str] = None
+    
+    @property
+    def is_available(self) -> bool:
+        """检查 SearXNG 是否可用"""
+        return bool(self._base_url or self._local_port)
+    
+    def _get_searxng_url(self) -> Optional[str]:
+        """获取 SearXNG 的 URL，优先使用本地地址"""
+        # 如果已经有缓存的可用地址，直接返回
+        if self._active_url:
+            return self._active_url
+        
+        # 优先尝试本地连接
+        local_url = f"http://localhost:{self._local_port}"
+        try:
+            response = requests.get(f"{local_url}/healthz", timeout=2)
+            if response.status_code == 200:
+                logger.info(f"[SearXNG] 使用本地地址: {local_url}")
+                self._active_url = local_url
+                return local_url
+        except:
+            pass
+        
+        # 本地不可用，尝试使用配置的 BASE_URL
+        if self._base_url:
+            try:
+                response = requests.get(f"{self._base_url}/healthz", timeout=5)
+                if response.status_code == 200:
+                    logger.info(f"[SearXNG] 使用远程地址: {self._base_url}")
+                    self._active_url = self._base_url
+                    return self._base_url
+            except:
+                pass
+        
+        logger.warning("[SearXNG] 所有地址均不可用")
+        return None
+    
+    def _do_search(self, query: str, api_key: str, max_results: int) -> SearchResponse:
+        """执行 SearXNG 搜索"""
+        base_url = self._get_searxng_url()
+        if not base_url:
+            return SearchResponse(
+                query=query,
+                results=[],
+                provider=self.name,
+                success=False,
+                error_message="SearXNG 服务不可用"
+            )
+        
+        try:
+            url = f"{base_url}/search"
+            params = {
+                "q": query,
+                "format": "json",
+                "categories": "news",
+                "language": "zh-CN",
+                "time_range": "week",  # 搜索最近一周的新闻
+                "safesearch": 0
+            }
+            
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            raw_results = data.get('results', [])[:max_results]
+            
+            if not raw_results:
+                return SearchResponse(
+                    query=query,
+                    results=[],
+                    provider=self.name,
+                    success=True,  # 搜索成功但无结果
+                    error_message=None
+                )
+            
+            # 解析结果
+            results = []
+            for item in raw_results:
+                results.append(SearchResult(
+                    title=item.get('title', ''),
+                    snippet=item.get('content', '')[:500] if item.get('content') else '',
+                    url=item.get('url', ''),
+                    source=item.get('engine', self._extract_domain(item.get('url', ''))),
+                    published_date=item.get('publishedDate'),
+                ))
+            
+            return SearchResponse(
+                query=query,
+                results=results,
+                provider=self.name,
+                success=True,
+            )
+            
+        except Exception as e:
+            return SearchResponse(
+                query=query,
+                results=[],
+                provider=self.name,
+                success=False,
+                error_message=str(e)
+            )
+    
+    def search(self, query: str, max_results: int = 5) -> SearchResponse:
+        """重写 search 方法，SearXNG 不需要 API Key"""
+        start_time = time.time()
+        try:
+            response = self._do_search(query, "", max_results)
+            response.search_time = time.time() - start_time
+            
+            if response.success:
+                logger.info(f"[{self._name}] 搜索 '{query}' 成功，返回 {len(response.results)} 条结果，耗时 {response.search_time:.2f}s")
+            
+            return response
+            
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"[{self._name}] 搜索 '{query}' 失败: {e}")
+            return SearchResponse(
+                query=query,
+                results=[],
+                provider=self._name,
+                success=False,
+                error_message=str(e),
+                search_time=elapsed
+            )
+    
+    @staticmethod
+    def _extract_domain(url: str) -> str:
+        """从 URL 提取域名作为来源"""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            domain = parsed.netloc.replace('www.', '')
+            return domain or '未知来源'
+        except:
+            return '未知来源'
 
 
 class TavilySearchProvider(BaseSearchProvider):
@@ -352,10 +511,18 @@ class SearchService:
     1. 管理多个搜索引擎
     2. 自动故障转移
     3. 结果聚合和格式化
+    
+    搜索引擎优先级：
+    1. SearXNG（自建免费，无限制）
+    2. Tavily（免费额度更多，每月 1000 次）
+    3. SerpAPI（每月 100 次）
     """
     
     def __init__(
         self,
+        searxng_base_url: Optional[str] = None,
+        searxng_local_port: str = "7289",
+        searxng_enabled: bool = False,
         tavily_keys: Optional[List[str]] = None,
         serpapi_keys: Optional[List[str]] = None,
     ):
@@ -363,13 +530,21 @@ class SearchService:
         初始化搜索服务
         
         Args:
+            searxng_base_url: SearXNG 远程地址
+            searxng_local_port: SearXNG 本地端口
+            searxng_enabled: 是否启用 SearXNG
             tavily_keys: Tavily API Key 列表
             serpapi_keys: SerpAPI Key 列表
         """
         self._providers: List[BaseSearchProvider] = []
         
         # 初始化搜索引擎（按优先级排序）
-        # Tavily 优先（免费额度更多，每月 1000 次）
+        # SearXNG 优先（自建免费，无限制）
+        if searxng_enabled and (searxng_base_url or searxng_local_port):
+            self._providers.append(SearXNGSearchProvider(searxng_base_url, searxng_local_port))
+            logger.info(f"已配置 SearXNG 搜索，BASE_URL: {searxng_base_url}, LOCAL_PORT: {searxng_local_port}")
+        
+        # Tavily 第二优先级（免费额度更多，每月 1000 次）
         if tavily_keys:
             self._providers.append(TavilySearchProvider(tavily_keys))
             logger.info(f"已配置 Tavily 搜索，共 {len(tavily_keys)} 个 API Key")
@@ -661,6 +836,9 @@ def get_search_service() -> SearchService:
         config = get_config()
         
         _search_service = SearchService(
+            searxng_base_url=config.searxng_base_url,
+            searxng_local_port=config.searxng_local_port,
+            searxng_enabled=config.searxng_enabled,
             tavily_keys=config.tavily_api_keys,
             serpapi_keys=config.serpapi_keys,
         )
